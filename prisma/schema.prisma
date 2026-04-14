@@ -1,0 +1,363 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────
+
+enum SpaceType {
+  ORG_WIDE
+  TEAM
+  CLIENT
+  PERSONAL
+}
+
+enum DocumentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ActivityType {
+  VIEW
+  EDIT
+  SEARCH
+  CREATE
+}
+
+enum TeamRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// ─── Auth & Users ───────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String    @unique
+  passwordHash   String
+  image          String?
+  organizationId String?
+  orgRole        OrgRole   @default(MEMBER)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  sessions       Session[]
+  teamMembers    TeamMember[]
+  userRoles      UserRole[]
+  documents      Document[]
+  activities     Activity[]
+  favorites      Favorite[]
+  comments       Comment[]
+  reactions      Reaction[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Organization ───────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users   User[]
+  teams   Team[]
+  roles   Role[]
+  spaces  Space[]
+  clients Client[]
+  tags    Tag[]
+}
+
+// ─── Teams (hierarchical) ───────────────────────────────
+
+model Team {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  parentId       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent        Team?          @relation("TeamHierarchy", fields: [parentId], references: [id])
+  children      Team[]         @relation("TeamHierarchy")
+  members       TeamMember[]
+  teamClients   TeamClient[]
+  spaces        Space[]
+  documentTeams DocumentTeam[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String
+  role      TeamRole @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+}
+
+// ─── Roles (job function) ───────────────────────────────
+
+model Role {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userRoles     UserRole[]
+  documentRoles DocumentRole[]
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+}
+
+// ─── Clients / Projects ────────────────────────────────
+
+model Client {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teamClients     TeamClient[]
+  documentClients DocumentClient[]
+}
+
+model TeamClient {
+  id        String   @id @default(cuid())
+  teamId    String
+  clientId  String
+  createdAt DateTime @default(now())
+
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, clientId])
+}
+
+// ─── Spaces (doc containers) ────────────────────────────
+
+model Space {
+  id             String    @id @default(cuid())
+  name           String
+  description    String?
+  slug           String
+  icon           String?
+  type           SpaceType @default(ORG_WIDE)
+  organizationId String
+  teamId         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team         Team?        @relation(fields: [teamId], references: [id])
+  documents    Document[]
+
+  @@unique([organizationId, slug])
+}
+
+// ─── Documents ──────────────────────────────────────────
+
+model Document {
+  id        String         @id @default(cuid())
+  title     String
+  content   String?        @db.Text
+  slug      String
+  excerpt   String?
+  status    DocumentStatus @default(DRAFT)
+  spaceId   String
+  authorId  String
+  parentId  String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  space    Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  author   User      @relation(fields: [authorId], references: [id])
+  parent   Document? @relation("DocumentHierarchy", fields: [parentId], references: [id])
+  children Document[] @relation("DocumentHierarchy")
+
+  documentTeams   DocumentTeam[]
+  documentRoles   DocumentRole[]
+  documentClients DocumentClient[]
+  documentTags    DocumentTag[]
+  activities      Activity[]
+  favorites       Favorite[]
+  comments        Comment[]
+  reactions       Reaction[]
+
+  @@unique([spaceId, slug])
+}
+
+// ─── Document Relevance (many-to-many) ──────────────────
+
+model DocumentTeam {
+  id         String @id @default(cuid())
+  documentId String
+  teamId     String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, teamId])
+}
+
+model DocumentRole {
+  id         String @id @default(cuid())
+  documentId String
+  roleId     String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, roleId])
+}
+
+model DocumentClient {
+  id         String @id @default(cuid())
+  documentId String
+  clientId   String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, clientId])
+}
+
+model DocumentTag {
+  id         String @id @default(cuid())
+  documentId String
+  tagId      String
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, tagId])
+}
+
+// ─── Tags ───────────────────────────────────────────────
+
+model Tag {
+  id             String   @id @default(cuid())
+  name           String
+  color          String?
+  organizationId String
+  createdAt      DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documentTags DocumentTag[]
+
+  @@unique([organizationId, name])
+}
+
+// ─── Activity Tracking ──────────────────────────────────
+
+model Activity {
+  id         String       @id @default(cuid())
+  type       ActivityType
+  userId     String
+  documentId String?
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+// ─── Favorites / Bookmarks ──────────────────────────────
+
+model Favorite {
+  id         String   @id @default(cuid())
+  userId     String
+  documentId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, documentId])
+}
+
+// ─── Comments ────────────────────────────────────────
+
+model Comment {
+  id         String   @id @default(cuid())
+  content    String   @db.Text
+  userId     String
+  documentId String
+  parentId   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentReplies")
+}
+
+// ─── Reactions ───────────────────────────────────────
+
+model Reaction {
+  id         String   @id @default(cuid())
+  emoji      String
+  userId     String
+  documentId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, documentId, emoji])
+}
