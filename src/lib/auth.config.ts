@@ -37,8 +37,15 @@ export const authConfig: NextAuthConfig = {
         nextUrl.pathname.startsWith(p)
       );
       const isAuthApi = nextUrl.pathname.startsWith("/api/auth");
+      // Ingest APIs run their own auth in-handler (bearer token / token-or-session), so
+      // they bypass the session-based middleware gate. Note: only /api/documents/ingest
+      // is exempt — the rest of /api/documents stays session-protected for the UI.
+      const isIngestApi =
+        nextUrl.pathname.startsWith("/api/docs") ||
+        nextUrl.pathname.startsWith("/api/graph") ||
+        nextUrl.pathname.startsWith("/api/documents/ingest");
 
-      if (isPublicPath || isAuthApi) return true;
+      if (isPublicPath || isAuthApi || isIngestApi) return true;
       if (!isLoggedIn) return false;
 
       // Redirect users without an org to setup

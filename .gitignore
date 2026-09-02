@@ -23,6 +23,14 @@
 # misc
 .DS_Store
 *.pem
+*.swp
+
+# one-off local scripts (contain secrets / not part of the app)
+/reset-pw.ts
+
+# source PDFs imported into DocuHub (kept out of git history — large binaries)
+docs/**/*.pdf
+docs/*.pdf
 
 # debug
 npm-debug.log*

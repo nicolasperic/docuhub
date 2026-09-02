@@ -178,4 +178,26 @@ Run `npm run seed` to populate test data:
 DATABASE_URL=postgresql://...
 NEXTAUTH_SECRET=<random-string>
 NEXTAUTH_URL=http://localhost:3000
+INGEST_TOKEN=<random-string>       # bearer token the Magento doc generator uses for /api/docs/ingest
+INGEST_ORG_SLUG=aztec-coders       # optional; org that ingested module docs belong to
 ```
+
+### Module Docs API (Magento generator)
+
+Endpoints for an external Magento/Adobe Commerce doc generator to populate per-module
+documentation. Generated content (timestamp-guarded via `generatedAt`) and manual/Team-Notes
+content (optimistic-lock via `baseVersion`) live in separate fields on `ModuleDoc` so a
+re-scan never clobbers a hand-written runbook. See `tools/magento-doc-generator/API_CONTRACT.md`
+in the generator repo for the full contract.
+
+- `POST /api/docs/ingest` — upsert one module (bearer `INGEST_TOKEN`); `?force=true` overrides staleness
+- `POST /api/docs/ingest/bulk` — array of ingest payloads
+- `GET /api/docs/:moduleName` — full page model; `?render=html` stitches generated+manual to HTML
+- `PUT /api/docs/:moduleName/manual` — save Team Notes (optimistic `baseVersion` guard)
+- `GET /api/docs?q=&kind=&depends_on=&plugs=&observes=` — search + structured edge filters
+- `GET /api/graph/:moduleName` — wiring neighbors (plugsInto, observedEvents, dependsOn, dependedOnBy)
+- `GET /api/docs/tree` — vendor-grouped navigable tree (+ Runbooks/Concepts)
+
+Models: `ModuleDoc` (keyed by `moduleName`), `ModuleEdge` (normalized wiring for search/graph),
+`DocumentModule` (links hand-written `Document`s to modules). Auth for these routes is handled
+in-handler (`src/lib/ingest-auth.ts`), so they're exempted from the session middleware.

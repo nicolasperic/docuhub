@@ -42,6 +42,12 @@ enum OrgRole {
   MEMBER
 }
 
+enum ModuleKind {
+  MODULE
+  RUNBOOK
+  CONCEPT
+}
+
 // ─── Auth & Users ───────────────────────────────────────
 
 model User {
@@ -93,12 +99,14 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users   User[]
-  teams   Team[]
-  roles   Role[]
-  spaces  Space[]
-  clients Client[]
-  tags    Tag[]
+  users        User[]
+  teams        Team[]
+  roles        Role[]
+  spaces       Space[]
+  clients      Client[]
+  tags         Tag[]
+  moduleDocs   ModuleDoc[]
+  moduleLabels ModuleLabel[]
 }
 
 // ─── Teams (hierarchical) ───────────────────────────────
@@ -194,6 +202,7 @@ model Space {
   id             String    @id @default(cuid())
   name           String
   description    String?
+  overview       String?   @db.Text // markdown landing content for the space main page
   slug           String
   icon           String?
   type           SpaceType @default(ORG_WIDE)
@@ -205,6 +214,7 @@ model Space {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   team         Team?        @relation(fields: [teamId], references: [id])
   documents    Document[]
+  moduleDocs   ModuleDoc[]
 
   @@unique([organizationId, slug])
 }
@@ -233,6 +243,7 @@ model Document {
   documentRoles   DocumentRole[]
   documentClients DocumentClient[]
   documentTags    DocumentTag[]
+  documentModules DocumentModule[]
   activities      Activity[]
   favorites       Favorite[]
   comments        Comment[]
@@ -360,4 +371,119 @@ model Reaction {
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, documentId, emoji])
+}
+
+// ─── Module Docs (Magento generator) ────────────────────
+
+model ModuleDoc {
+  id         String     @id @default(cuid())
+  moduleName String     @unique // upsert key, e.g. LittlePassports_AutoCustomerRegistration
+  dirName    String? // module-auto-customer-registration
+  title      String
+  kind       ModuleKind @default(MODULE)
+  vendor     String? // derived from moduleName prefix, for tree grouping
+
+  // generated block — generator-owned, timestamp-guarded
+  generatedMarkdown String   @db.Text
+  generatedHash     String?
+  generatedAt       DateTime
+
+  // manual block — human-owned, version-guarded
+  manualMarkdown String?   @db.Text
+  manualVersion  Int       @default(0)
+  humanUpdatedAt DateTime?
+  updatedBy      String?
+
+  // structured data (raw round-trip fidelity)
+  doc   Json?
+  edges Json?
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  spaceId String?
+  space   Space?  @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+
+  moduleEdges      ModuleEdge[]
+  documentModules  DocumentModule[]
+  labelAssignments ModuleLabelAssignment[]
+  components       ModuleComponent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([spaceId])
+  @@index([vendor])
+  @@index([kind])
+}
+
+// ─── Module Components (what a module declares: observers, cron, webapi, …) ───
+
+model ModuleComponent {
+  id          String  @id @default(cuid())
+  moduleDocId String
+  type        String // "plugin" | "observer" | "cron" | "webapi" | "graphql" | "db_schema" | … (open-ended)
+  name        String // event name, cron code, "GET /V1/…/:id", "Query.foo", table name
+  target      String? // wired class/service (plugin subject, observer/resolver class, …)
+  meta        Json? // type-specific extras (schedule, http method, acl, columns, …)
+
+  moduleDoc ModuleDoc @relation(fields: [moduleDocId], references: [id], onDelete: Cascade)
+
+  @@index([moduleDocId])
+  @@index([type])
+  @@index([type, name])
+}
+
+// ─── Module Labels (structural groups: Checkout, Payments, …) ───
+
+model ModuleLabel {
+  id             String   @id @default(cuid())
+  name           String
+  color          String? // hex, drives the group accent in the UI
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignments  ModuleLabelAssignment[]
+
+  @@unique([organizationId, name])
+}
+
+model ModuleLabelAssignment {
+  id          String @id @default(cuid())
+  moduleDocId String
+  labelId     String
+
+  moduleDoc ModuleDoc   @relation(fields: [moduleDocId], references: [id], onDelete: Cascade)
+  label     ModuleLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleDocId, labelId])
+  @@index([labelId])
+}
+
+model ModuleEdge {
+  id          String @id @default(cuid())
+  moduleDocId String
+  kind        String // "plugin" | "observer" | "depends" | ...
+  fromRef     String
+  toRef       String
+
+  moduleDoc ModuleDoc @relation(fields: [moduleDocId], references: [id], onDelete: Cascade)
+
+  @@index([moduleDocId])
+  @@index([kind, toRef])
+  @@index([kind, fromRef])
+}
+
+model DocumentModule {
+  id          String @id @default(cuid())
+  documentId  String
+  moduleDocId String
+
+  document  Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  moduleDoc ModuleDoc @relation(fields: [moduleDocId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, moduleDocId])
 }
