@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,37 +12,36 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Plus, FileText } from "lucide-react";
-
-interface Document {
-  id: string;
-  title: string;
-  slug: string;
-  status: string;
-  excerpt: string | null;
-  updatedAt: string;
-  author: { name: string | null };
-  children: { id: string; title: string; slug: string }[];
-  documentTags: { tag: { name: string; color: string | null } }[];
-}
+import { Plus, Package, ChevronRight } from "lucide-react";
+import { SpaceOverview } from "@/components/spaces/space-overview";
+import { SpaceDocuments, type SpaceDocument } from "@/components/documents/space-documents";
 
 interface SpaceDetail {
   id: string;
   name: string;
   slug: string;
   description: string | null;
+  overview: string | null;
   type: string;
-  documents: Document[];
+  documents: SpaceDocument[];
 }
 
 export default function SpaceDetailPage() {
   const params = useParams<{ slug: string }>();
   const [space, setSpace] = useState<SpaceDetail | null>(null);
+  const [moduleCount, setModuleCount] = useState(0);
 
   useEffect(() => {
     fetch(`/api/spaces/${params.slug}`)
       .then((res) => res.json())
       .then(setSpace);
+    fetch(`/api/docs/tree?space=${encodeURIComponent(params.slug)}`)
+      .then((res) => (res.ok ? res.json() : { groups: [] }))
+      .then((data: { groups?: { items: { moduleName: string }[] }[] }) => {
+        const names = new Set((data.groups ?? []).flatMap((g) => g.items.map((m) => m.moduleName)));
+        setModuleCount(names.size);
+      })
+      .catch(() => setModuleCount(0));
   }, [params.slug]);
 
   if (!space) return <div className="p-4">Loading...</div>;
@@ -76,58 +74,31 @@ export default function SpaceDetailPage() {
         </Link>
       </div>
 
-      <div className="space-y-2">
-        {space.documents.map((doc) => (
-          <Link
-            key={doc.id}
-            href={`/spaces/${space.slug}/${doc.slug}`}
-            className="flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/50"
-          >
-            <div className="flex items-center gap-3">
-              <FileText className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="font-medium">{doc.title}</p>
-                {doc.excerpt && (
-                  <p className="text-sm text-muted-foreground line-clamp-1">{doc.excerpt}</p>
-                )}
-                <div className="mt-1 flex items-center gap-2">
-                  <Badge
-                    variant={doc.status === "PUBLISHED" ? "default" : "secondary"}
-                    className="text-xs"
-                  >
-                    {doc.status}
-                  </Badge>
-                  {doc.documentTags.map((dt) => (
-                    <Badge
-                      key={dt.tag.name}
-                      variant="outline"
-                      className="text-xs"
-                      style={dt.tag.color ? { borderColor: dt.tag.color, color: dt.tag.color } : undefined}
-                    >
-                      {dt.tag.name}
-                    </Badge>
-                  ))}
-                  {doc.children.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {doc.children.length} sub-page{doc.children.length !== 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="text-right text-xs text-muted-foreground">
-              <p>{doc.author.name}</p>
-              <p>{new Date(doc.updatedAt).toLocaleDateString()}</p>
-            </div>
-          </Link>
-        ))}
-        {space.documents.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            <FileText className="mx-auto mb-2 h-8 w-8" />
-            <p>No documents in this space yet.</p>
+      <SpaceOverview
+        spaceSlug={space.slug}
+        overview={space.overview}
+        onChange={(overview) => setSpace((prev) => (prev ? { ...prev, overview } : prev))}
+      />
+
+      {moduleCount > 0 && (
+        <Link
+          href={`/spaces/${space.slug}/modules`}
+          className="flex items-center gap-3 rounded-lg border p-4 transition-colors hover:bg-muted/50"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Package className="h-5 w-5 text-muted-foreground" />
           </div>
-        )}
-      </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Modules</p>
+            <p className="text-sm text-muted-foreground">
+              {moduleCount} module{moduleCount !== 1 ? "s" : ""} — browse, search & filter by label or capability
+            </p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </Link>
+      )}
+
+      <SpaceDocuments spaceSlug={space.slug} documents={space.documents} />
     </div>
   );
 }

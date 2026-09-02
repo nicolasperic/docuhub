@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, ChevronDown, Circle, FileText, Search, Loader2, Plus } from "lucide-react";
+import { ChevronRight, ChevronDown, Circle, FileText, Search, Loader2, Plus, Package } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -158,6 +158,7 @@ export function SpaceDocTree() {
   const pathname = usePathname();
   const router = useRouter();
   const [treeData, setTreeData] = useState<TreeData | null>(null);
+  const [moduleCount, setModuleCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -184,6 +185,19 @@ export function SpaceDocTree() {
       .catch(() => setTreeData(null))
       .finally(() => setLoading(false));
   }, [spaceSlug, docSlug]);
+
+  useEffect(() => {
+    if (!spaceSlug) return;
+    fetch(`/api/docs/tree?space=${encodeURIComponent(spaceSlug)}`)
+      .then((r) => (r.ok ? r.json() : { groups: [] }))
+      .then((data: { groups?: { items: { moduleName: string }[] }[] }) => {
+        const names = new Set(
+          (data.groups ?? []).flatMap((g) => g.items.map((m) => m.moduleName))
+        );
+        setModuleCount(names.size);
+      })
+      .catch(() => setModuleCount(0));
+  }, [spaceSlug]);
 
   const onToggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -230,6 +244,37 @@ export function SpaceDocTree() {
         <p className="mb-2 truncate px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {treeData.spaceName}
         </p>
+
+        <nav className="mb-2 space-y-0.5">
+          <Link
+            href={`/spaces/${treeData.spaceSlug}/documents`}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
+              pathname === `/spaces/${treeData.spaceSlug}/documents`
+                ? "bg-accent text-accent-foreground font-medium"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+            )}
+          >
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+            Documents
+          </Link>
+          {moduleCount > 0 && (
+            <Link
+              href={`/spaces/${treeData.spaceSlug}/modules`}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
+                pathname.startsWith(`/spaces/${treeData.spaceSlug}/modules`)
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              )}
+            >
+              <Package className="h-3.5 w-3.5 shrink-0" />
+              Modules
+              <span className="ml-auto text-xs text-muted-foreground">{moduleCount}</span>
+            </Link>
+          )}
+        </nav>
+
         <div className="relative">
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input

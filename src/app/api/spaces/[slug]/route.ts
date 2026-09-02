@@ -44,13 +44,18 @@ export async function PUT(
   if (error) return error;
 
   const { slug } = await params;
-  const { name, description, icon } = await req.json();
+  const { name, description, icon, overview } = await req.json();
 
   const space = await db.space.update({
     where: {
       organizationId_slug: { organizationId: user!.organizationId, slug },
     },
-    data: { name, description, icon },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(icon !== undefined ? { icon } : {}),
+      ...(overview !== undefined ? { overview } : {}),
+    },
   });
 
   return NextResponse.json(space);
